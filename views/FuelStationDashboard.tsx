@@ -1,26 +1,33 @@
 
 import React, { useEffect, useState } from 'react';
-import { User, Transaction, FuelStation, TransactionStatus, FuelType } from '../types';
+import { User, Transaction, FuelStation, TransactionStatus, FuelType, Organization, Invoice, InvoiceStatus } from '../types';
 import { storageService } from '../services/storageService';
-import { CheckCircle, Clock, DollarSign, Wallet, Zap, CalendarCheck, Edit3, Search, Ticket } from 'lucide-react';
+import { CheckCircle, Clock, DollarSign, Wallet, Zap, CalendarCheck, Edit3, Search, Ticket, FileText, Upload, Building2 } from 'lucide-react';
 
 interface Props {
   user: User;
 }
 
+type StationTab = 'SUPPLY' | 'BILLING';
+
 export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
+  const [activeTab, setActiveTab] = useState<StationTab>('SUPPLY');
   const [station, setStation] = useState<FuelStation | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [orgs, setOrgs] = useState<Organization[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   
-  // Search & Filter
+  // Supply Tab State
   const [searchTerm, setSearchTerm] = useState('');
-
-  // Validation State
   const [validatingTx, setValidatingTx] = useState<string | null>(null);
   const [fillData, setFillData] = useState({ liters: 0, price: 0, odometer: 0 });
 
+  // Billing Tab State
+  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
+  const [selectedOrgForInvoice, setSelectedOrgForInvoice] = useState<Organization | null>(null);
+  const [invoiceForm, setInvoiceForm] = useState({ number: '', isAdvance: false, file: null as File | null });
+
   useEffect(() => {
-    // Poll for updates (e.g., new requests coming in)
     refreshData();
     const interval = setInterval(refreshData, 10000);
     return () => clearInterval(interval);
@@ -29,9 +36,19 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
   const refreshData = () => {
     const s = storageService.getStations().find(s => s.id === user.stationId);
     setStation(s || null);
+    
+    // Refresh Tx
     const txs = storageService.getTransactions().filter(t => t.stationId === user.stationId);
     setTransactions(txs);
+    
+    // Refresh Orgs
+    setOrgs(storageService.getOrgs());
+
+    // Refresh Invoices
+    setInvoices(storageService.getInvoices().filter(i => i.stationId === user.stationId));
   };
+
+  // --- VALIDATION LOGIC ---
 
   const handleStartValidation = (tx: Transaction) => {
     const product = station?.products.find(p => p.type === tx.fuelType);
@@ -53,7 +70,6 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
     const total = fillData.liters * fillData.price;
     const allTxs = storageService.getTransactions();
     
-    // Optimistic update
     const updatedTxs = allTxs.map(t => {
       if (t.id === validatingTx) {
         return {
@@ -71,74 +87,90 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
 
     storageService.updateTransactions(updatedTxs);
     
-    // Calculate pending balance
+    // Calc balances
     const sTxs = updatedTxs.filter(t => t.stationId === station.id && t.status === TransactionStatus.VALIDATED);
     const newPending = sTxs.reduce((acc, t) => acc + (t.totalValue || 0), 0);
     
     const updatedStations = storageService.getStations().map(s => {
-      if (s.id === station.id) {
-        return { ...s, balancePending: newPending };
-      }
+      if (s.id === station.id) return { ...s, balancePending: newPending };
       return s;
     });
     storageService.updateStations(updatedStations);
 
     setValidatingTx(null);
     refreshData();
-    alert("Abastecimento validado com sucesso!");
+    alert("Abastecimento validado com sucesso! Disponível para faturamento.");
   };
 
-  const handleBilling = (advance: boolean) => {
-    if(!station) return;
+  // --- BILLING LOGIC (INVOICES) ---
 
-    // Filter validated txs
-    const pendingTxs = transactions.filter(t => t.status === TransactionStatus.VALIDATED);
-    
-    if (pendingTxs.length === 0) {
-      alert("Não há transações validadas disponíveis para faturamento/adiantamento.");
-      return;
+  const openInvoiceModal = (org: Organization, isAdvance: boolean) => {
+    setSelectedOrgForInvoice(org);
+    setInvoiceForm({ number: '', isAdvance, file: null });
+    setShowInvoiceModal(true);
+  };
+
+  const handleGenerateInvoice = () => {
+    if(!selectedOrgForInvoice || !station || !invoiceForm.number) {
+        alert("Preencha o número da Nota Fiscal.");
+        return;
     }
 
-    if(advance) {
-        if(!confirm(`Deseja antecipar R$ ${station.balancePending.toFixed(2)}? \nUma taxa adicional de ${station.advanceFeePercentage}% será aplicada.`)) return;
-    } else {
-        if(!confirm(`Fechar fatura mensal de R$ ${station.balancePending.toFixed(2)}? \nO pagamento será processado em até 30 dias.`)) return;
-    }
+    // Get validated transactions for this Org
+    const pendingTxs = transactions.filter(t => 
+        t.orgId === selectedOrgForInvoice.id && 
+        t.status === TransactionStatus.VALIDATED
+    );
 
+    const totalValue = pendingTxs.reduce((acc, t) => acc + (t.totalValue || 0), 0);
+    const { feeAmount, netValue } = storageService.applyFees(totalValue, station, invoiceForm.isAdvance);
+
+    const newInvoice: Invoice = {
+        id: `inv${Date.now()}`,
+        stationId: station.id,
+        orgId: selectedOrgForInvoice.id,
+        nfeNumber: invoiceForm.number,
+        nfeFileUrl: 'fake_url_to_pdf.pdf', // Simulation
+        totalValue,
+        netValue,
+        feeAmount,
+        issueDate: new Date().toISOString(),
+        status: InvoiceStatus.PENDING_MANAGER,
+        isAdvance: invoiceForm.isAdvance,
+        transactionIds: pendingTxs.map(t => t.id)
+    };
+
+    // Update Transactions
     const allTxs = storageService.getTransactions();
-    let totalInvoicedNet = 0;
-
     const updatedTxs = allTxs.map(t => {
-      if (t.stationId === station.id && t.status === TransactionStatus.VALIDATED) {
-        const txWithFees = storageService.applyFees(t, station, advance);
-        totalInvoicedNet += (txWithFees.netValue || 0);
-        return { 
-          ...txWithFees, 
-          status: advance ? TransactionStatus.ADVANCE_REQUESTED : TransactionStatus.INVOICED 
-        };
-      }
-      return t;
+        if (pendingTxs.find(pt => pt.id === t.id)) {
+            return { ...t, status: TransactionStatus.INVOICED, invoiceId: newInvoice.id };
+        }
+        return t;
     });
 
-    storageService.updateTransactions(updatedTxs);
-    
-    // Update Station Balances
+    // Update Station Balance
     const updatedStations = storageService.getStations().map(s => {
-        if (s.id === station.id) {
+        if(s.id === station.id) {
             return {
                 ...s,
-                balancePending: 0,
-                balanceInvoiced: s.balanceInvoiced + totalInvoicedNet
+                balancePending: s.balancePending - totalValue,
+                balanceInvoiced: s.balanceInvoiced + netValue
             }
         }
         return s;
     });
+
+    storageService.createInvoice(newInvoice);
+    storageService.updateTransactions(updatedTxs);
     storageService.updateStations(updatedStations);
 
+    setShowInvoiceModal(false);
     refreshData();
-    alert(advance ? "Solicitação de adiantamento enviada!" : "Fatura fechada e enviada para o administrador.");
+    alert("Fatura gerada e enviada para validação do Gestor!");
   };
 
+  // --- PRICING LOGIC ---
   const updatePrice = (type: FuelType, newPrice: number) => {
     if(!station) return;
     const newProducts = [...station.products];
@@ -157,8 +189,7 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
 
   if (!station) return <div className="p-8 text-center text-slate-500">Carregando dados do posto...</div>;
 
-  // Logic to filter transactions for the Queue
-  const pendingValidations = transactions
+  const pendingSupply = transactions
     .filter(t => t.status === TransactionStatus.REQUESTED)
     .filter(t => {
       if(!searchTerm) return true;
@@ -180,33 +211,31 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
            </p>
         </div>
         
-        {/* Billing Actions */}
-        <div className="flex gap-3 w-full md:w-auto">
-           <button 
-             onClick={() => handleBilling(false)}
-             disabled={station.balancePending === 0}
-             className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-white border border-slate-300 text-slate-700 px-5 py-2.5 rounded-xl hover:bg-slate-50 font-medium disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-           >
-             <CalendarCheck size={18} /> Fechar Mês
-           </button>
-           <button 
-             onClick={() => handleBilling(true)}
-             disabled={station.balancePending === 0}
-             className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-slate-900 text-white px-5 py-2.5 rounded-xl hover:bg-slate-800 font-medium shadow-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-           >
-             <Zap size={18} className="text-amber-400" /> Antecipar Recebíveis
-           </button>
+        {/* Navigation Tabs */}
+        <div className="bg-white p-1 rounded-xl shadow-sm border border-slate-200 flex">
+          <button
+            onClick={() => setActiveTab('SUPPLY')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'SUPPLY' ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:bg-slate-50'}`}
+          >
+            <Zap size={16} /> Abastecimentos
+          </button>
+          <button
+            onClick={() => setActiveTab('BILLING')}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'BILLING' ? 'bg-slate-800 text-white shadow' : 'text-slate-500 hover:bg-slate-50'}`}
+          >
+            <FileText size={16} /> Financeiro & NFe
+          </button>
         </div>
       </div>
 
-      {/* Financial Overview Cards */}
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
            <div className="flex justify-between items-start">
              <div>
-                <p className="text-sm text-slate-500 font-bold uppercase tracking-wider mb-1">Disponível para Antecipar</p>
+                <p className="text-sm text-slate-500 font-bold uppercase tracking-wider mb-1">A Faturar (Pendente)</p>
                 <p className="text-3xl font-extrabold text-slate-800">R$ {station.balancePending.toFixed(2)}</p>
-                <p className="text-xs text-slate-400 mt-2">Valores validados (Bruto)</p>
+                <p className="text-xs text-slate-400 mt-2">Validados, aguardando NFe</p>
              </div>
              <div className="bg-blue-50 p-3 rounded-xl"><Clock size={24} className="text-blue-600"/></div>
            </div>
@@ -215,9 +244,9 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
            <div className="flex justify-between items-start">
              <div>
-                <p className="text-sm text-slate-500 font-bold uppercase tracking-wider mb-1">A Receber (Faturado)</p>
+                <p className="text-sm text-slate-500 font-bold uppercase tracking-wider mb-1">Processando</p>
                 <p className="text-3xl font-extrabold text-amber-500">R$ {station.balanceInvoiced.toFixed(2)}</p>
-                <p className="text-xs text-slate-400 mt-2">Aguardando pagamento Admin</p>
+                <p className="text-xs text-slate-400 mt-2">NFe emitida, aguardando pagto</p>
              </div>
              <div className="bg-amber-50 p-3 rounded-xl"><Wallet size={24} className="text-amber-600"/></div>
            </div>
@@ -226,21 +255,20 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
            <div className="flex justify-between items-start">
              <div>
-                <p className="text-sm text-slate-500 font-bold uppercase tracking-wider mb-1">Total Recebido</p>
+                <p className="text-sm text-slate-500 font-bold uppercase tracking-wider mb-1">Recebido</p>
                 <p className="text-3xl font-extrabold text-emerald-600">R$ {station.balancePaid.toFixed(2)}</p>
-                <p className="text-xs text-slate-400 mt-2">Acumulado</p>
              </div>
              <div className="bg-emerald-50 p-3 rounded-xl"><DollarSign size={24} className="text-emerald-600"/></div>
            </div>
         </div>
       </div>
 
+      {/* === SUPPLY TAB === */}
+      {activeTab === 'SUPPLY' && (
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* Validation Workflow (Main Area) */}
         <div className="lg:col-span-2 space-y-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-slate-700">Fila de Abastecimento</h2>
+            <h2 className="text-lg font-bold text-slate-700">Fila de Pista (Abastecimentos)</h2>
             <div className="relative">
                <Search className="absolute left-3 top-2.5 text-slate-400" size={16} />
                <input 
@@ -253,24 +281,20 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
             </div>
           </div>
 
-          {pendingValidations.length === 0 ? (
+          {pendingSupply.length === 0 ? (
             <div className="bg-white p-12 rounded-2xl text-center border-2 border-dashed border-slate-200">
               <div className="bg-slate-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
                  <Clock className="text-slate-300" size={32} />
               </div>
-              <h3 className="text-slate-500 font-medium">
-                 {searchTerm ? "Nenhuma requisição encontrada para esta busca." : "Nenhum veículo aguardando no momento."}
-              </h3>
+              <h3 className="text-slate-500 font-medium">Nenhum veículo aguardando validação.</h3>
             </div>
           ) : (
             <div className="space-y-4">
-              {pendingValidations.map(tx => {
+              {pendingSupply.map(tx => {
                  const vehicle = storageService.getVehicles().find(v => v.id === tx.vehicleId);
                  return (
                   <div key={tx.id} className={`bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden transition-all ${validatingTx === tx.id ? 'ring-2 ring-blue-500 shadow-lg' : ''}`}>
-                    
                     {validatingTx === tx.id ? (
-                      // Active Validation Form
                       <div className="p-6 bg-blue-50/30">
                         <div className="flex justify-between items-center mb-4 pb-4 border-b border-blue-100">
                           <h3 className="font-bold text-blue-900">Validar Abastecimento</h3>
@@ -279,71 +303,41 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
                              <span className="text-xs font-mono text-slate-500">#{tx.voucherCode || '---'}</span>
                           </div>
                         </div>
-                        
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                            <div>
-                             <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Litros (Bomba)</label>
-                             <input 
-                               type="number" 
-                               className="w-full border border-slate-300 rounded-lg p-3 text-lg font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
-                               value={fillData.liters}
-                               onChange={e => setFillData({...fillData, liters: Number(e.target.value)})}
-                             />
+                             <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Litros</label>
+                             <input type="number" className="w-full border border-slate-300 rounded-lg p-3 text-lg font-bold text-slate-800" value={fillData.liters} onChange={e => setFillData({...fillData, liters: Number(e.target.value)})} />
                            </div>
                            <div>
-                             <label className="block text-xs font-bold uppercase text-slate-500 mb-1">Preço / Litro</label>
-                             <input 
-                               type="number" 
-                               step="0.01"
-                               className="w-full border border-slate-300 rounded-lg p-3 text-lg font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
-                               value={fillData.price}
-                               onChange={e => setFillData({...fillData, price: Number(e.target.value)})}
-                             />
+                             <label className="block text-xs font-bold uppercase text-slate-500 mb-1">R$ / Litro</label>
+                             <input type="number" step="0.01" className="w-full border border-slate-300 rounded-lg p-3 text-lg font-bold text-slate-800" value={fillData.price} onChange={e => setFillData({...fillData, price: Number(e.target.value)})} />
                            </div>
                            <div>
                              <label className="block text-xs font-bold uppercase text-slate-500 mb-1">KM Atual</label>
-                             <input 
-                               type="number" 
-                               className="w-full border border-slate-300 rounded-lg p-3 text-lg font-bold text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
-                               value={fillData.odometer}
-                               onChange={e => setFillData({...fillData, odometer: Number(e.target.value)})}
-                             />
+                             <input type="number" className="w-full border border-slate-300 rounded-lg p-3 text-lg font-bold text-slate-800" value={fillData.odometer} onChange={e => setFillData({...fillData, odometer: Number(e.target.value)})} />
                            </div>
                         </div>
-                        
                         <div className="flex flex-col md:flex-row justify-between items-center gap-4 bg-white p-4 rounded-xl border border-blue-100 shadow-sm">
                            <div className="text-center md:text-left">
-                             <span className="text-sm text-slate-500 font-medium">Valor Total da Transação</span>
+                             <span className="text-sm text-slate-500 font-medium">Total</span>
                              <p className="text-3xl font-extrabold text-slate-900">R$ {(fillData.liters * fillData.price).toFixed(2)}</p>
                            </div>
-                           <div className="flex gap-3 w-full md:w-auto">
-                             <button onClick={() => setValidatingTx(null)} className="flex-1 md:flex-none px-6 py-3 text-slate-600 hover:bg-slate-50 rounded-lg font-medium transition-colors">Cancelar</button>
-                             <button onClick={submitValidation} className="flex-1 md:flex-none px-8 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 transition-colors">Confirmar</button>
+                           <div className="flex gap-3">
+                             <button onClick={() => setValidatingTx(null)} className="px-6 py-3 text-slate-600 font-medium">Cancelar</button>
+                             <button onClick={submitValidation} className="px-8 py-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 shadow-lg shadow-blue-200">Confirmar</button>
                            </div>
                         </div>
                       </div>
                     ) : (
-                      // List Item
-                      <div className="p-5 flex flex-col md:flex-row justify-between items-center gap-4">
+                      <div className="p-5 flex justify-between items-center gap-4">
                         <div className="flex items-center gap-4">
-                          <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-lg shrink-0">
-                            {tx.requestedLiters}L
-                          </div>
+                          <div className="w-12 h-12 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold text-lg">{tx.requestedLiters}L</div>
                           <div>
-                            <div className="flex items-center gap-2">
-                               <p className="font-bold text-slate-800 text-lg">{tx.fuelType}</p>
-                               {tx.voucherCode && <span className="text-xs bg-slate-100 border border-slate-200 px-2 py-0.5 rounded font-mono text-slate-600 flex items-center gap-1"><Ticket size={10}/> {tx.voucherCode}</span>}
-                            </div>
-                            <p className="text-sm text-slate-500">Placa: <span className="text-slate-800 font-bold">{vehicle?.plate || '???'}</span></p>
-                            <p className="text-xs text-slate-400 mt-0.5">Solicitante: {tx.driverName}</p>
+                            <div className="flex items-center gap-2"><p className="font-bold text-slate-800 text-lg">{tx.fuelType}</p>{tx.voucherCode && <span className="text-xs bg-slate-100 border px-2 rounded font-mono text-slate-600">{tx.voucherCode}</span>}</div>
+                            <p className="text-sm text-slate-500">Placa: <span className="text-slate-800 font-bold">{vehicle?.plate}</span></p>
                           </div>
                         </div>
-                        <button 
-                          onClick={() => handleStartValidation(tx)}
-                          className="w-full md:w-auto bg-slate-900 text-white px-6 py-2.5 rounded-lg hover:bg-slate-800 font-medium shadow transition-colors flex items-center justify-center gap-2"
-                        >
-                          <Edit3 size={16} /> Validar
-                        </button>
+                        <button onClick={() => handleStartValidation(tx)} className="bg-slate-900 text-white px-6 py-2.5 rounded-lg hover:bg-slate-800 font-medium flex gap-2"><Edit3 size={16} /> Validar</button>
                       </div>
                     )}
                   </div>
@@ -353,45 +347,163 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
           )}
         </div>
 
-        {/* Product Price Management */}
+        {/* Pricing Panel */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 h-fit overflow-hidden">
           <div className="bg-emerald-50 p-4 border-b border-emerald-100 flex items-center gap-2">
-            <DollarSign className="text-emerald-600" /> 
-            <h2 className="font-bold text-emerald-900">Gerenciar Preços</h2>
+            <DollarSign className="text-emerald-600" /> <h2 className="font-bold text-emerald-900">Preços na Bomba</h2>
           </div>
-          
           <div className="p-2">
-            {Object.values(FuelType).map((type, idx) => {
+            {Object.values(FuelType).map((type) => {
               const prod = station.products.find(p => p.type === type);
               return (
-                <div key={type} className={`p-4 ${idx !== Object.values(FuelType).length -1 ? 'border-b border-slate-50' : ''}`}>
+                <div key={type} className="p-4 border-b border-slate-50 last:border-0">
                   <div className="flex justify-between items-center mb-2">
                     <span className="font-semibold text-slate-700">{type}</span>
-                    <span className="text-[10px] text-slate-400">
-                      {prod?.lastUpdated ? `Atualizado: ${new Date(prod.lastUpdated).toLocaleDateString()}` : 'Nunca'}
-                    </span>
                   </div>
                   <div className="relative">
                     <span className="absolute left-3 top-2.5 text-slate-400 font-medium">R$</span>
-                    <input 
-                      type="number" 
-                      step="0.01"
-                      className="w-full border border-slate-200 bg-slate-50 rounded-lg py-2 pl-8 pr-4 font-mono font-bold text-slate-800 focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-all"
-                      value={prod?.price || ''}
-                      onChange={(e) => updatePrice(type, Number(e.target.value))}
-                      placeholder="0.00"
-                    />
+                    <input type="number" step="0.01" className="w-full border border-slate-200 bg-slate-50 rounded-lg py-2 pl-8 pr-4 font-bold text-slate-800" value={prod?.price || ''} onChange={(e) => updatePrice(type, Number(e.target.value))} placeholder="0.00" />
                   </div>
                 </div>
               )
             })}
           </div>
-          <div className="bg-slate-50 p-3 text-center text-xs text-slate-500 border-t border-slate-100">
-             Os preços são atualizados em tempo real para os gestores.
-          </div>
         </div>
-
       </div>
+      )}
+
+      {/* === BILLING TAB === */}
+      {activeTab === 'BILLING' && (
+          <div className="space-y-6">
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                
+                {/* Section 1: Ready to Invoice */}
+                <div>
+                    <h2 className="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2"><Building2 size={20}/> Clientes com Saldo (A Faturar)</h2>
+                    <div className="space-y-4">
+                        {orgs.map(org => {
+                            const pendingAmount = transactions
+                                .filter(t => t.orgId === org.id && t.stationId === station.id && t.status === TransactionStatus.VALIDATED)
+                                .reduce((acc, t) => acc + (t.totalValue || 0), 0);
+                            
+                            if (pendingAmount <= 0) return null;
+
+                            return (
+                                <div key={org.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <h3 className="font-bold text-slate-800 text-lg">{org.name}</h3>
+                                        <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded">PENDENTE</span>
+                                    </div>
+                                    <p className="text-slate-500 text-sm mb-4">Total Validado: <span className="text-slate-900 font-bold text-xl block">R$ {pendingAmount.toFixed(2)}</span></p>
+                                    
+                                    <div className="flex gap-2">
+                                        <button 
+                                            onClick={() => openInvoiceModal(org, false)}
+                                            className="flex-1 bg-white border border-slate-300 text-slate-700 py-2 rounded-lg font-medium hover:bg-slate-50"
+                                        >
+                                            Fatura Mensal
+                                        </button>
+                                        <button 
+                                            onClick={() => openInvoiceModal(org, true)}
+                                            className="flex-1 bg-amber-50 border border-amber-200 text-amber-800 py-2 rounded-lg font-medium hover:bg-amber-100 flex items-center justify-center gap-1"
+                                        >
+                                            <Zap size={14}/> Antecipar
+                                        </button>
+                                    </div>
+                                </div>
+                            )
+                        })}
+                        {!orgs.some(o => transactions.some(t => t.orgId === o.id && t.stationId === station.id && t.status === TransactionStatus.VALIDATED)) && (
+                            <p className="text-slate-400 italic">Nenhum saldo pendente para faturar.</p>
+                        )}
+                    </div>
+                </div>
+
+                {/* Section 2: Invoices History */}
+                <div>
+                     <h2 className="text-lg font-bold text-slate-700 mb-4 flex items-center gap-2"><FileText size={20}/> Histórico de Faturas</h2>
+                     <div className="space-y-4">
+                         {invoices.length === 0 ? <p className="text-slate-400 italic">Nenhuma nota fiscal emitida ainda.</p> : 
+                           invoices.map(inv => {
+                               const orgName = orgs.find(o => o.id === inv.orgId)?.name || 'Cliente';
+                               return (
+                                   <div key={inv.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm flex justify-between items-center">
+                                       <div>
+                                           <p className="font-bold text-slate-800">NF #{inv.nfeNumber}</p>
+                                           <p className="text-xs text-slate-500">{orgName} • {new Date(inv.issueDate).toLocaleDateString()}</p>
+                                           {inv.isAdvance && <span className="text-[10px] bg-amber-100 text-amber-800 px-1 rounded">Antecipação</span>}
+                                       </div>
+                                       <div className="text-right">
+                                           <p className="font-bold text-slate-700">R$ {inv.netValue.toFixed(2)}</p>
+                                           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                               inv.status === InvoiceStatus.PENDING_MANAGER ? 'bg-yellow-100 text-yellow-700' :
+                                               inv.status === InvoiceStatus.PENDING_ADMIN ? 'bg-blue-100 text-blue-700' :
+                                               inv.status === InvoiceStatus.PAID ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                                           }`}>
+                                               {inv.status === InvoiceStatus.PENDING_MANAGER ? 'AG. GESTOR' :
+                                                inv.status === InvoiceStatus.PENDING_ADMIN ? 'AG. PAGAMENTO' :
+                                                inv.status === InvoiceStatus.PAID ? 'PAGO' : 'RECUSADO'}
+                                           </span>
+                                       </div>
+                                   </div>
+                               )
+                           })
+                         }
+                     </div>
+                </div>
+             </div>
+          </div>
+      )}
+
+      {/* Invoice Generation Modal */}
+      {showInvoiceModal && selectedOrgForInvoice && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-300">
+                  <div className="flex justify-between items-center mb-6">
+                      <h3 className="text-xl font-bold text-slate-800">Emitir Nota Fiscal</h3>
+                      <button onClick={() => setShowInvoiceModal(false)} className="text-slate-400 hover:text-slate-600"><span className="sr-only">Fechar</span>x</button>
+                  </div>
+                  
+                  <div className="bg-slate-50 p-4 rounded-xl mb-6">
+                      <p className="text-xs text-slate-500 uppercase font-bold">Cliente</p>
+                      <p className="font-bold text-slate-800">{selectedOrgForInvoice.name}</p>
+                      <p className="text-xs text-slate-500 mt-2 uppercase font-bold">Tipo de Faturamento</p>
+                      <p className={`font-bold ${invoiceForm.isAdvance ? 'text-amber-600' : 'text-slate-800'}`}>
+                          {invoiceForm.isAdvance ? 'Antecipação de Recebíveis (+ Taxa)' : 'Faturamento Mensal Padrão'}
+                      </p>
+                  </div>
+
+                  <div className="space-y-4">
+                      <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Número da Nota Fiscal (NFe)</label>
+                          <input 
+                              type="text" 
+                              className="w-full border border-slate-300 rounded-lg p-3" 
+                              placeholder="Ex: 000.123.456"
+                              value={invoiceForm.number}
+                              onChange={e => setInvoiceForm({...invoiceForm, number: e.target.value})}
+                          />
+                      </div>
+                      
+                      <div>
+                          <label className="block text-sm font-medium text-slate-700 mb-1">Arquivo XML ou PDF</label>
+                          <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 flex flex-col items-center justify-center text-slate-500 hover:bg-slate-50 cursor-pointer transition-colors">
+                              <Upload size={24} className="mb-2"/>
+                              <span className="text-xs">Clique para anexar arquivo da NFe</span>
+                          </div>
+                      </div>
+
+                      <button 
+                          onClick={handleGenerateInvoice}
+                          className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 mt-2"
+                      >
+                          Emitir e Enviar para Validação
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
     </div>
   );
 };

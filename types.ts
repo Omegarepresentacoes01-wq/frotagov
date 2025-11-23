@@ -8,10 +8,16 @@ export enum UserRole {
 export enum TransactionStatus {
   REQUESTED = 'REQUESTED',      // Manager asked for fuel
   VALIDATED = 'VALIDATED',      // Station filled and confirmed details
-  INVOICED = 'INVOICED',        // Station sent monthly bill
-  ADVANCE_REQUESTED = 'ADVANCE_REQUESTED', // Station requested early payment
-  PAID = 'PAID',                // Admin paid the station
+  INVOICED = 'INVOICED',        // Linked to an Invoice (NFe)
+  PAID = 'PAID',                // Admin paid the Invoice
   CANCELLED = 'CANCELLED'
+}
+
+export enum InvoiceStatus {
+  PENDING_MANAGER = 'PENDING_MANAGER', // Posto emitiu, Gestor precisa atestar
+  PENDING_ADMIN = 'PENDING_ADMIN',     // Gestor atestou, Admin precisa pagar
+  PAID = 'PAID',                       // Admin pagou
+  REJECTED = 'REJECTED'                // Gestor recusou (erro na nota, etc)
 }
 
 export enum FuelType {
@@ -25,11 +31,11 @@ export enum FuelType {
 export interface User {
   id: string;
   name: string;
-  username: string; // Login
-  password?: string; // Stored locally for MVP demo purposes
+  username: string;
+  password?: string;
   role: UserRole;
-  orgId?: string; // For managers
-  stationId?: string; // For station owners
+  orgId?: string;
+  stationId?: string;
   createdAt: string;
 }
 
@@ -40,7 +46,7 @@ export interface Organization {
   address: string;
   contactName: string;
   contactPhone: string;
-  balanceDue: number; // How much the Org owes the platform
+  balanceDue: number;
   status: 'ACTIVE' | 'INACTIVE';
 }
 
@@ -50,11 +56,11 @@ export interface FuelStation {
   cnpj: string;
   address: string;
   contactName: string;
-  baseFeePercentage: number; // Configured by Admin (1.5% - 15%)
-  advanceFeePercentage: number; // Extra fee for early payment
+  baseFeePercentage: number;
+  advanceFeePercentage: number;
   balancePending: number; // Validated but not invoiced
-  balanceInvoiced: number; // Invoiced, waiting payment
-  balancePaid: number; // Money already received
+  balanceInvoiced: number; // Invoiced (waiting approval or payment)
+  balancePaid: number;
   products: Product[];
   status: 'ACTIVE' | 'INACTIVE';
 }
@@ -70,15 +76,15 @@ export interface Vehicle {
   orgId: string;
   plate: string;
   model: string;
-  department: string; // "Centro de Custo"
+  department: string;
   type: 'Light' | 'Heavy' | 'Machine';
   currentOdometer: number;
-  avgConsumption: number; // km/l target
+  avgConsumption: number;
 }
 
 export interface Transaction {
   id: string;
-  voucherCode: string; // New: Unique readable code (e.g., REQ-1234)
+  voucherCode: string;
   orgId: string;
   stationId: string;
   vehicleId: string;
@@ -88,17 +94,36 @@ export interface Transaction {
   fuelType: FuelType;
   requestedLiters: number;
   
-  // Validation details (filled by Station)
+  // Validation details
   validationDate?: string;
   filledLiters?: number;
   pricePerLiter?: number;
   totalValue?: number;
   odometer?: number;
   
-  // Financials (Calculated by System)
-  feePercentageApplied?: number; // Snapshot of fee at time of calc
-  feeAmount?: number; // Total * Fee%
-  netValue?: number; // Total - Fee
+  // Invoice Link
+  invoiceId?: string;
+
+  // Financials
+  feePercentageApplied?: number;
+  feeAmount?: number;
+  netValue?: number;
   isAdvanced?: boolean;
   paymentDate?: string;
+}
+
+export interface Invoice {
+  id: string;
+  stationId: string;
+  orgId: string;
+  nfeNumber: string;
+  nfeAccessKey?: string; // Simulate XML key
+  nfeFileUrl?: string; // Simulated file
+  totalValue: number;
+  netValue: number; // Value station receives after fees
+  feeAmount: number; // Platform cut
+  issueDate: string;
+  status: InvoiceStatus;
+  isAdvance: boolean;
+  transactionIds: string[];
 }

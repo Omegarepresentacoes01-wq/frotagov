@@ -1,5 +1,5 @@
 
-import { User, UserRole, Organization, FuelStation, Vehicle, Transaction, FuelType, TransactionStatus } from '../types';
+import { User, UserRole, Organization, FuelStation, Vehicle, Transaction, Invoice, FuelType, TransactionStatus } from '../types';
 
 // Storage Keys
 const KEYS = {
@@ -8,6 +8,7 @@ const KEYS = {
   STATIONS: 'frotagov_stations',
   VEHICLES: 'frotagov_vehicles',
   TRANSACTIONS: 'frotagov_transactions',
+  INVOICES: 'frotagov_invoices',
   SESSION: 'frotagov_user_session'
 };
 
@@ -33,36 +34,32 @@ const save = <T,>(key: string, data: T) => {
 
 export const storageService = {
   init: () => {
-    // 1. Ensure all arrays exist to prevent crashes
     if (!localStorage.getItem(KEYS.ORGS)) save(KEYS.ORGS, []);
     if (!localStorage.getItem(KEYS.STATIONS)) save(KEYS.STATIONS, []);
     if (!localStorage.getItem(KEYS.VEHICLES)) save(KEYS.VEHICLES, []);
     if (!localStorage.getItem(KEYS.TRANSACTIONS)) save(KEYS.TRANSACTIONS, []);
+    if (!localStorage.getItem(KEYS.INVOICES)) save(KEYS.INVOICES, []);
 
-    // 2. USER RECOVERY SYSTEM
+    // USER RECOVERY SYSTEM
     let users = load<User[]>(KEYS.USERS, []);
     if (!Array.isArray(users)) users = [];
 
-    // Check if the master admin exists. 
-    // We explicitly check for the username 'admin' to guarantee access.
     const masterAdminIndex = users.findIndex(u => u.username === 'admin');
 
     const masterAdmin: User = {
       id: 'admin_master',
       name: 'Super Admin (Master)',
       username: 'admin',
-      password: '123', // Hardcoded recovery password
+      password: '123',
       role: UserRole.SUPER_ADMIN,
       createdAt: new Date().toISOString()
     };
 
     if (masterAdminIndex === -1) {
-      // If missing, add it immediately.
       console.log("⚠️ Master Admin missing. Restoring 'admin' / '123' access...");
       users.push(masterAdmin);
       save(KEYS.USERS, users);
     } else {
-      // Optional: Ensure the master role is always correct, even if edited manually by mistake
       if (users[masterAdminIndex].role !== UserRole.SUPER_ADMIN) {
          users[masterAdminIndex].role = UserRole.SUPER_ADMIN;
          save(KEYS.USERS, users);
@@ -78,6 +75,7 @@ export const storageService = {
       stations: load(KEYS.STATIONS, []),
       vehicles: load(KEYS.VEHICLES, []),
       transactions: load(KEYS.TRANSACTIONS, []),
+      invoices: load(KEYS.INVOICES, []),
       exportedAt: new Date().toISOString()
     };
     return JSON.stringify(db, null, 2);
@@ -86,21 +84,16 @@ export const storageService = {
   importDatabase: (jsonContent: string): boolean => {
     try {
       const db = JSON.parse(jsonContent);
-      
-      // Basic validation schema
       if (!Array.isArray(db.users) || !Array.isArray(db.orgs)) {
         throw new Error("Formato de arquivo inválido.");
       }
-
       save(KEYS.USERS, db.users);
       save(KEYS.ORGS, db.orgs);
       save(KEYS.STATIONS, db.stations || []);
       save(KEYS.VEHICLES, db.vehicles || []);
       save(KEYS.TRANSACTIONS, db.transactions || []);
-      
-      // Re-run init to ensure admin is still there after import
+      save(KEYS.INVOICES, db.invoices || []);
       storageService.init();
-      
       return true;
     } catch (e) {
       console.error("Import failed", e);
@@ -109,17 +102,14 @@ export const storageService = {
   },
   
   clearDatabase: () => {
-      // We clear everything EXCEPT the session maybe? No, clear all.
       localStorage.removeItem(KEYS.USERS);
       localStorage.removeItem(KEYS.ORGS);
       localStorage.removeItem(KEYS.STATIONS);
       localStorage.removeItem(KEYS.VEHICLES);
       localStorage.removeItem(KEYS.TRANSACTIONS);
+      localStorage.removeItem(KEYS.INVOICES);
       localStorage.removeItem(KEYS.SESSION);
-      
-      // Immediately re-init to restore Admin before reload
       storageService.init();
-      
       window.location.reload();
   },
 
@@ -154,17 +144,7 @@ export const storageService = {
   deleteUser: (id: string) => {
     const users = load<User[]>(KEYS.USERS, []);
     const userToDelete = users.find(u => u.id === id);
-    
-    // Protect the Master Admin
-    if (userToDelete?.username === 'admin') {
-        throw new Error("O Super Admin principal não pode ser removido.");
-    }
-    
-    // Prevent deleting the last Super Admin (redundancy check)
-    if (userToDelete?.role === UserRole.SUPER_ADMIN) {
-        const adminCount = users.filter(u => u.role === UserRole.SUPER_ADMIN).length;
-        if (adminCount <= 1) throw new Error("Não é possível remover o último Super Admin.");
-    }
+    if (userToDelete?.username === 'admin') throw new Error("O Super Admin principal não pode ser removido.");
     save(KEYS.USERS, users.filter(u => u.id !== id));
   },
 
@@ -203,23 +183,23 @@ export const storageService = {
   getTransactions: (): Transaction[] => load(KEYS.TRANSACTIONS, []),
   updateTransactions: (txs: Transaction[]) => save(KEYS.TRANSACTIONS, txs),
 
+  // --- CRUD Invoices ---
+  getInvoices: (): Invoice[] => load(KEYS.INVOICES, []),
+  createInvoice: (inv: Invoice) => {
+      const invs = load<Invoice[]>(KEYS.INVOICES, []);
+      save(KEYS.INVOICES, [...invs, inv]);
+  },
+  updateInvoices: (invs: Invoice[]) => save(KEYS.INVOICES, invs),
+
   // --- Financial Logic ---
-  applyFees: (tx: Transaction, station: FuelStation, isAdvance: boolean): Transaction => {
-    if (!tx.totalValue) return tx;
-    
+  applyFees: (totalValue: number, station: FuelStation, isAdvance: boolean) => {
     const appliedRate = isAdvance 
       ? station.baseFeePercentage + station.advanceFeePercentage 
       : station.baseFeePercentage;
 
-    const feeAmount = (tx.totalValue * appliedRate) / 100;
-    const netValue = tx.totalValue - feeAmount;
-
-    return {
-      ...tx,
-      feePercentageApplied: appliedRate,
-      feeAmount,
-      netValue,
-      isAdvanced: isAdvance
-    };
+    const feeAmount = (totalValue * appliedRate) / 100;
+    const netValue = totalValue - feeAmount;
+    
+    return { feeAmount, netValue, appliedRate };
   }
 };

@@ -1,8 +1,8 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { User } from '../types';
 import { storageService } from '../services/storageService';
-import { Fuel, ShieldCheck, Zap, Lock, User as UserIcon, AlertCircle } from 'lucide-react';
+import { Fuel, ShieldCheck, Zap, Lock, User as UserIcon, AlertCircle, Upload, Download } from 'lucide-react';
 
 interface LoginProps {
   onLogin: (user: User) => void;
@@ -12,6 +12,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,6 +29,23 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
     } else {
       setError('Credenciais inválidas. Tente "admin" / "123" se for o primeiro acesso.');
     }
+  };
+
+  const handleRestoreBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      if (storageService.importDatabase(content)) {
+        alert('Dados restaurados com sucesso! O sistema será recarregado.');
+        window.location.reload();
+      } else {
+        setError('Arquivo de backup inválido.');
+      }
+    };
+    reader.readAsText(file);
   };
 
   return (
@@ -97,9 +115,27 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
             </button>
           </form>
 
-          <div className="mt-8 pt-6 border-t border-slate-100">
+          <div className="mt-8 pt-6 border-t border-slate-100 flex flex-col gap-4">
              <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
                <ShieldCheck size={14} /> Ambiente Seguro e Criptografado
+             </div>
+             
+             {/* Backup Restore Section */}
+             <div className="flex justify-center">
+                <input 
+                  type="file" 
+                  ref={fileInputRef} 
+                  className="hidden" 
+                  accept=".json" 
+                  onChange={handleRestoreBackup}
+                />
+                <button 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="text-slate-400 hover:text-blue-600 text-xs flex items-center gap-1 transition-colors"
+                  title="Se seus dados sumiram, clique aqui para restaurar um backup antigo."
+                >
+                  <Upload size={12} /> Restaurar Backup de Dados
+                </button>
              </div>
           </div>
         </div>
