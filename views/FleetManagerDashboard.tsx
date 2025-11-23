@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { User, Vehicle, FuelStation, Transaction, TransactionStatus, FuelType } from '../types';
 import { storageService } from '../services/storageService';
 import { generateFleetInsights } from '../services/geminiService';
-import { Truck, Fuel, BarChart3, TrendingUp, Search, BrainCircuit, Building2, MapPin, PlusCircle, Trash2, Car, LayoutDashboard } from 'lucide-react';
+import { Truck, Fuel, BarChart3, TrendingUp, Search, BrainCircuit, Building2, MapPin, PlusCircle, Trash2, Car, LayoutDashboard, Ticket, Check, X } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
 interface Props {
@@ -26,6 +26,9 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
   const [selectedStation, setSelectedStation] = useState('');
   const [fuelType, setFuelType] = useState<FuelType>(FuelType.GASOLINE);
   const [amount, setAmount] = useState<string>(''); 
+  
+  // Voucher Modal State
+  const [createdVoucher, setCreatedVoucher] = useState<Transaction | null>(null);
 
   // Vehicle Management Form
   const [showAddVehicle, setShowAddVehicle] = useState(false);
@@ -53,6 +56,10 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
 
   // --- ACTIONS ---
 
+  const generateVoucherCode = () => {
+    return 'REQ-' + Math.random().toString(36).substring(2, 7).toUpperCase();
+  };
+
   const handleRequestFuel = () => {
     if(!selectedVehicle || !selectedStation || !amount) {
       alert("Por favor, preencha todos os campos.");
@@ -63,6 +70,7 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
 
     const newTx: Transaction = {
       id: `tx${Date.now()}`,
+      voucherCode: generateVoucherCode(),
       orgId: user.orgId!,
       stationId: selectedStation,
       vehicleId: selectedVehicle,
@@ -77,10 +85,10 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
     storageService.updateTransactions([...currentTxs, newTx]);
     refreshData();
     
-    // Reset form
+    // Reset form and show Voucher
     setAmount('');
     setSelectedVehicle('');
-    alert('Solicitação enviada ao posto! Aguarde a validação no local.');
+    setCreatedVoucher(newTx);
   };
 
   const handleAddVehicle = () => {
@@ -184,7 +192,7 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
             {/* Fuel Request Form */}
             <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
               <div className="bg-blue-600 p-4 text-white flex items-center gap-2">
-                <Fuel size={20} /> <span className="font-bold">Solicitar Abastecimento</span>
+                <Ticket size={20} /> <span className="font-bold">Nova Requisição</span>
               </div>
               <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
                 
@@ -244,7 +252,7 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium mb-1 text-slate-700">Quantidade (Litros)</label>
+                    <label className="block text-sm font-medium mb-1 text-slate-700">Quantidade Estimada (Litros)</label>
                     <input 
                       type="number" 
                       className="w-full border border-slate-300 rounded-lg p-3 focus:ring-2 focus:ring-blue-500 focus:outline-none"
@@ -261,8 +269,11 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
                     disabled={vehicles.length === 0}
                     className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Gerar Autorização de Abastecimento
+                    Gerar Voucher de Autorização
                   </button>
+                  <p className="text-xs text-slate-400 mt-2 text-center">
+                    Ao gerar, um código único será criado para o motorista apresentar no posto.
+                  </p>
                 </div>
               </div>
             </div>
@@ -396,6 +407,51 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
               ))}
               {vehicles.length === 0 && <div className="col-span-3 text-center py-12 text-slate-400">Nenhum veículo cadastrado nesta frota.</div>}
            </div>
+        </div>
+      )}
+
+      {/* VOUCHER SUCCESS MODAL */}
+      {createdVoucher && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-in fade-in zoom-in duration-300">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden relative">
+            <div className="bg-emerald-500 h-2"></div>
+            <div className="p-8 text-center">
+              <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce">
+                <Check className="text-emerald-600" size={32} />
+              </div>
+              <h3 className="text-2xl font-bold text-slate-800 mb-1">Autorizado!</h3>
+              <p className="text-slate-500 text-sm mb-6">Envie este voucher para o motorista.</p>
+              
+              <div className="bg-slate-50 border-2 border-dashed border-slate-300 rounded-xl p-4 mb-6 relative">
+                 <p className="text-xs text-slate-400 uppercase font-bold mb-1">Código do Voucher</p>
+                 <p className="text-3xl font-mono font-bold text-slate-800 tracking-wider select-all">{createdVoucher.voucherCode}</p>
+                 <div className="absolute -left-3 top-1/2 w-6 h-6 bg-white rounded-full border-r border-slate-200 transform -translate-y-1/2"></div>
+                 <div className="absolute -right-3 top-1/2 w-6 h-6 bg-white rounded-full border-l border-slate-200 transform -translate-y-1/2"></div>
+              </div>
+
+              <div className="space-y-2 text-sm text-left mb-6">
+                <div className="flex justify-between border-b border-slate-100 pb-2">
+                   <span className="text-slate-500">Veículo</span>
+                   <span className="font-bold text-slate-700">{vehicles.find(v => v.id === createdVoucher.vehicleId)?.plate}</span>
+                </div>
+                <div className="flex justify-between border-b border-slate-100 pb-2">
+                   <span className="text-slate-500">Posto</span>
+                   <span className="font-bold text-slate-700">{stations.find(s => s.id === createdVoucher.stationId)?.name}</span>
+                </div>
+                <div className="flex justify-between">
+                   <span className="text-slate-500">Combustível</span>
+                   <span className="font-bold text-slate-700">{createdVoucher.requestedLiters}L ({createdVoucher.fuelType})</span>
+                </div>
+              </div>
+
+              <button 
+                onClick={() => setCreatedVoucher(null)}
+                className="w-full bg-slate-900 text-white py-3 rounded-xl font-bold hover:bg-slate-800 transition-colors"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

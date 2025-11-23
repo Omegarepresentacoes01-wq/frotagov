@@ -78,6 +78,7 @@ export interface Vehicle {
 
 export interface Transaction {
   id: string;
+  voucherCode: string; // New: Unique readable code (e.g., REQ-1234)
   orgId: string;
   stationId: string;
   vehicleId: string;
