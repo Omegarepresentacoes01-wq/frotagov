@@ -1,8 +1,8 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { User, Transaction, FuelStation, TransactionStatus, FuelType, Organization, Invoice, InvoiceStatus } from '../types';
 import { storageService } from '../services/storageService';
-import { CheckCircle, Clock, DollarSign, Wallet, Zap, CalendarCheck, Edit3, Search, Ticket, FileText, Upload, Building2 } from 'lucide-react';
+import { CheckCircle, Clock, DollarSign, Wallet, Zap, FileText, Upload, Building2, X, Search, Edit3 } from 'lucide-react';
 
 interface Props {
   user: User;
@@ -25,11 +25,15 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
   // Billing Tab State
   const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [selectedOrgForInvoice, setSelectedOrgForInvoice] = useState<Organization | null>(null);
-  const [invoiceForm, setInvoiceForm] = useState({ number: '', isAdvance: false, file: null as File | null });
+  const [invoiceForm, setInvoiceForm] = useState({ number: '', isAdvance: false });
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  
+  // Use a generic ref for safety, but we use the overlay method for inputs now
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     refreshData();
-    const interval = setInterval(refreshData, 10000);
+    const interval = setInterval(refreshData, 5000);
     return () => clearInterval(interval);
   }, [user.stationId]);
 
@@ -106,13 +110,26 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
 
   const openInvoiceModal = (org: Organization, isAdvance: boolean) => {
     setSelectedOrgForInvoice(org);
-    setInvoiceForm({ number: '', isAdvance, file: null });
+    setInvoiceForm({ number: '', isAdvance });
+    setSelectedFile(null);
     setShowInvoiceModal(true);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      console.log("Arquivo selecionado:", e.target.files[0].name);
+      setSelectedFile(e.target.files[0]);
+    }
   };
 
   const handleGenerateInvoice = () => {
     if(!selectedOrgForInvoice || !station || !invoiceForm.number) {
-        alert("Preencha o número da Nota Fiscal.");
+        alert("Por favor, preencha o número da Nota Fiscal.");
+        return;
+    }
+    
+    if(!selectedFile) {
+        alert("É obrigatório anexar o arquivo (PDF ou XML) da Nota Fiscal.");
         return;
     }
 
@@ -130,12 +147,12 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
         stationId: station.id,
         orgId: selectedOrgForInvoice.id,
         nfeNumber: invoiceForm.number,
-        nfeFileUrl: 'fake_url_to_pdf.pdf', // Simulation
+        nfeFileUrl: selectedFile.name, // Simulated file URL
         totalValue,
         netValue,
         feeAmount,
         issueDate: new Date().toISOString(),
-        status: InvoiceStatus.PENDING_MANAGER,
+        status: InvoiceStatus.PENDING_MANAGER, // Posto emitiu -> Vai para o Gestor
         isAdvance: invoiceForm.isAdvance,
         transactionIds: pendingTxs.map(t => t.id)
     };
@@ -167,7 +184,7 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
 
     setShowInvoiceModal(false);
     refreshData();
-    alert("Fatura gerada e enviada para validação do Gestor!");
+    alert(`Fatura #${newInvoice.nfeNumber} gerada com sucesso! O Gestor do Órgão foi notificado para atestar.`);
   };
 
   // --- PRICING LOGIC ---
@@ -431,6 +448,7 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
                                        <div>
                                            <p className="font-bold text-slate-800">NF #{inv.nfeNumber}</p>
                                            <p className="text-xs text-slate-500">{orgName} • {new Date(inv.issueDate).toLocaleDateString()}</p>
+                                           {inv.nfeFileUrl && <p className="text-[10px] text-blue-500 mt-1 flex items-center gap-1"><FileText size={10}/> {inv.nfeFileUrl}</p>}
                                            {inv.isAdvance && <span className="text-[10px] bg-amber-100 text-amber-800 px-1 rounded">Antecipação</span>}
                                        </div>
                                        <div className="text-right">
@@ -461,7 +479,7 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
               <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 animate-in fade-in zoom-in duration-300">
                   <div className="flex justify-between items-center mb-6">
                       <h3 className="text-xl font-bold text-slate-800">Emitir Nota Fiscal</h3>
-                      <button onClick={() => setShowInvoiceModal(false)} className="text-slate-400 hover:text-slate-600"><span className="sr-only">Fechar</span>x</button>
+                      <button onClick={() => setShowInvoiceModal(false)} className="text-slate-400 hover:text-slate-600"><X size={24}/></button>
                   </div>
                   
                   <div className="bg-slate-50 p-4 rounded-xl mb-6">
@@ -487,15 +505,32 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
                       
                       <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Arquivo XML ou PDF</label>
-                          <div className="border-2 border-dashed border-slate-300 rounded-lg p-6 flex flex-col items-center justify-center text-slate-500 hover:bg-slate-50 cursor-pointer transition-colors">
-                              <Upload size={24} className="mb-2"/>
-                              <span className="text-xs">Clique para anexar arquivo da NFe</span>
+                          <div className="relative border-2 border-dashed border-slate-300 rounded-lg p-6 flex flex-col items-center justify-center hover:bg-slate-50 transition-colors">
+                              <input 
+                                  type="file" 
+                                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                                  onChange={handleFileChange} 
+                                  accept=".pdf,.xml,.jpg,.png"
+                              />
+                              {selectedFile ? (
+                                  <>
+                                    <CheckCircle size={32} className="text-blue-600 mb-2" />
+                                    <span className="font-bold text-blue-900 text-sm text-center">{selectedFile.name}</span>
+                                    <span className="text-xs text-blue-500">Clique para alterar</span>
+                                  </>
+                              ) : (
+                                  <>
+                                    <Upload size={24} className="mb-2 text-slate-400"/>
+                                    <span className="text-xs text-slate-500">Clique para anexar arquivo da NFe</span>
+                                  </>
+                              )}
                           </div>
                       </div>
 
                       <button 
                           onClick={handleGenerateInvoice}
-                          className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 mt-2"
+                          className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-200 mt-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={!invoiceForm.number || !selectedFile}
                       >
                           Emitir e Enviar para Validação
                       </button>

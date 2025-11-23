@@ -1,8 +1,9 @@
+
 import React, { useEffect, useState, useRef } from 'react';
 import { storageService } from '../services/storageService';
 import { Organization, FuelStation, Transaction, TransactionStatus, User, UserRole, Invoice, InvoiceStatus } from '../types';
 import { PieChart, Pie, Cell, ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
-import { PlusCircle, DollarSign, Building2, Settings, AlertTriangle, Users, Trash2, Store, LayoutDashboard, Database, Download, Upload, RefreshCw, FileText } from 'lucide-react';
+import { PlusCircle, DollarSign, Building2, Settings, AlertTriangle, Users, Trash2, Store, LayoutDashboard, Database, Download, Upload, RefreshCw, FileText, ExternalLink } from 'lucide-react';
 
 type AdminTab = 'DASHBOARD' | 'ORGS' | 'STATIONS' | 'USERS' | 'SYSTEM';
 
@@ -51,7 +52,7 @@ export const SuperAdminDashboard: React.FC = () => {
 
       // Update related transactions to PAID
       const updatedTxs = storageService.getTransactions().map(t => {
-          if (inv.transactionIds.includes(t.id)) {
+          if (inv.transactionIds && inv.transactionIds.includes(t.id)) {
               return { ...t, status: TransactionStatus.PAID, paymentDate: new Date().toISOString() };
           }
           return t;
@@ -73,6 +74,7 @@ export const SuperAdminDashboard: React.FC = () => {
       storageService.updateTransactions(updatedTxs);
       storageService.updateStations(updatedStations);
       refreshData();
+      alert("Fatura Paga! O saldo foi transferido para o Posto.");
   };
 
   const handleDownloadBackup = () => { 
@@ -190,7 +192,7 @@ export const SuperAdminDashboard: React.FC = () => {
             <div className="bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col">
                <div className="p-6 border-b border-slate-100 flex justify-between items-center"><h3 className="text-lg font-bold flex gap-2"><AlertTriangle className="text-amber-500"/> Faturas a Pagar</h3><span className="bg-amber-100 text-amber-700 px-2 rounded-full font-bold">{pendingInvoices.length}</span></div>
                <div className="overflow-y-auto flex-1 max-h-[300px]">
-                 {pendingInvoices.length === 0 ? <p className="text-center py-8 text-slate-400">Nenhuma fatura pendente.</p> : 
+                 {pendingInvoices.length === 0 ? <p className="text-center py-8 text-slate-400">Nenhuma fatura pendente de pagamento.</p> : 
                    <table className="w-full text-left text-xs">
                      <thead className="bg-slate-50 text-slate-400 uppercase"><tr><th className="px-4 py-2">Posto / NFe</th><th className="px-4 py-2 text-right">Valor Líquido</th><th className="px-4 py-2"></th></tr></thead>
                      <tbody>
@@ -198,10 +200,13 @@ export const SuperAdminDashboard: React.FC = () => {
                             <tr key={inv.id} className="border-b border-slate-50">
                               <td className="px-4 py-3">
                                   <div className="font-bold">{stations.find(s=>s.id===inv.stationId)?.name}</div>
-                                  <div className="text-slate-500">NF: {inv.nfeNumber}</div>
+                                  <div className="text-slate-500 flex gap-1 items-center">
+                                     NF: {inv.nfeNumber}
+                                     {inv.nfeFileUrl && <button onClick={() => alert('Visualizando arquivo: ' + inv.nfeFileUrl)} className="text-blue-500 hover:text-blue-700 ml-2" title="Ver Arquivo"><ExternalLink size={10}/></button>}
+                                  </div>
                               </td>
                               <td className="px-4 py-3 text-right font-bold text-slate-700">R$ {inv.netValue.toFixed(2)}</td>
-                              <td className="px-4 py-3 text-right"><button onClick={() => handlePayInvoice(inv)} className="text-emerald-600 font-bold hover:underline">Pagar</button></td>
+                              <td className="px-4 py-3 text-right"><button onClick={() => handlePayInvoice(inv)} className="bg-emerald-600 text-white px-3 py-1 rounded font-bold hover:bg-emerald-700 transition-colors">Pagar</button></td>
                             </tr>
                        ))}
                      </tbody>

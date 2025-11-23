@@ -1,8 +1,9 @@
+
 import React, { useEffect, useState } from 'react';
 import { User, Vehicle, FuelStation, Transaction, TransactionStatus, FuelType, Invoice, InvoiceStatus } from '../types';
 import { storageService } from '../services/storageService';
 import { generateFleetInsights } from '../services/geminiService';
-import { Truck, Fuel, BarChart3, TrendingUp, Search, BrainCircuit, Building2, MapPin, PlusCircle, Trash2, Car, LayoutDashboard, Ticket, Check, X, FileText, CheckCheck } from 'lucide-react';
+import { Truck, BarChart3, Building2, PlusCircle, Trash2, Car, LayoutDashboard, Ticket, Check, FileText, CheckCheck, Eye, XCircle } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
 interface Props {
@@ -36,6 +37,8 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
 
   useEffect(() => {
     refreshData();
+    const interval = setInterval(refreshData, 5000); // Auto-refresh to see new invoices
+    return () => clearInterval(interval);
   }, [user.orgId]);
 
   const refreshData = () => {
@@ -54,14 +57,42 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
   };
 
   const handleApproveInvoice = (inv: Invoice) => {
-      if(!confirm(`Confirma o recebimento dos serviços e valida a NF #${inv.nfeNumber}? O admin será notificado para pagamento.`)) return;
+      // Direct confirm
+      if(!window.confirm(`Confirma o recebimento dos serviços e valida a NF #${inv.nfeNumber}? O admin será notificado para pagamento.`)) return;
 
-      const updatedInvs = storageService.getInvoices().map(i => {
-          if(i.id === inv.id) return { ...i, status: InvoiceStatus.PENDING_ADMIN };
-          return i;
-      });
-      storageService.updateInvoices(updatedInvs);
-      refreshData();
+      try {
+        const allInvoices = storageService.getInvoices();
+        const updatedInvs = allInvoices.map(i => {
+            if(i.id === inv.id) {
+              return { ...i, status: InvoiceStatus.PENDING_ADMIN };
+            }
+            return i;
+        });
+        storageService.updateInvoices(updatedInvs);
+        refreshData();
+        alert("Nota Fiscal atestada com sucesso! O status foi atualizado para PENDING_ADMIN.");
+      } catch (e) {
+        console.error(e);
+        alert("Erro ao atualizar a fatura.");
+      }
+  };
+  
+  const handleRejectInvoice = (inv: Invoice) => {
+    if(!window.confirm(`Deseja realmente recusar a NF #${inv.nfeNumber}? O posto será notificado.`)) return;
+    try {
+        const allInvoices = storageService.getInvoices();
+        const updatedInvs = allInvoices.map(i => {
+            if(i.id === inv.id) {
+              return { ...i, status: InvoiceStatus.REJECTED };
+            }
+            return i;
+        });
+        storageService.updateInvoices(updatedInvs);
+        refreshData();
+        alert("Nota Fiscal recusada.");
+    } catch(e) {
+        alert("Erro ao recusar.");
+    }
   };
 
   const generateVoucherCode = () => 'REQ-' + Math.random().toString(36).substring(2, 7).toUpperCase();
@@ -131,7 +162,6 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
     return acc;
   }, []);
 
-  // Helper for UI translation
   const getVehicleTypeLabel = (type: string) => {
       if(type === 'Light') return 'Leve';
       if(type === 'Heavy') return 'Pesado';
@@ -223,7 +253,7 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
              </div>
              <div className="bg-white rounded-2xl shadow-sm flex flex-col p-6">
                 <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-bold text-indigo-900 flex gap-2"><BrainCircuit /> IA Consultor de Frota</h3>
+                    <h3 className="font-bold text-indigo-900 flex gap-2"><Ticket /> IA Consultor de Frota</h3>
                     <button onClick={generateReport} disabled={loadingAi} className="text-xs bg-indigo-600 text-white px-3 py-1 rounded-full">{loadingAi ? 'Analisando...' : 'Gerar Análise'}</button>
                 </div>
                 <div className="bg-indigo-50 p-4 rounded-xl flex-1 text-sm text-slate-700 whitespace-pre-wrap font-sans overflow-auto max-h-[300px]">{aiInsight || 'Clique em "Gerar Análise" para obter insights inteligentes sobre consumo e economia.'}</div>
@@ -275,27 +305,57 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
                                return (
                                    <tr key={inv.id} className="hover:bg-slate-50">
                                        <td className="px-6 py-4 font-bold text-slate-800">{stationName}</td>
-                                       <td className="px-6 py-4 flex items-center gap-2"><FileText size={14} className="text-blue-500"/> {inv.nfeNumber}</td>
+                                       <td className="px-6 py-4">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-mono bg-slate-100 px-1 rounded">{inv.nfeNumber}</span>
+                                                {inv.nfeFileUrl && (
+                                                    <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full flex items-center gap-1 border border-blue-100">
+                                                        <FileText size={10}/> {inv.nfeFileUrl}
+                                                    </span>
+                                                )}
+                                            </div>
+                                       </td>
                                        <td className="px-6 py-4">{new Date(inv.issueDate).toLocaleDateString()}</td>
                                        <td className="px-6 py-4 font-bold">R$ {inv.totalValue.toFixed(2)}</td>
                                        <td className="px-6 py-4">
                                            <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${
                                                inv.status === InvoiceStatus.PENDING_MANAGER ? 'bg-yellow-100 text-yellow-700' :
                                                inv.status === InvoiceStatus.PENDING_ADMIN ? 'bg-blue-100 text-blue-700' :
+                                               inv.status === InvoiceStatus.REJECTED ? 'bg-red-100 text-red-700' :
                                                'bg-emerald-100 text-emerald-700'
                                            }`}>
                                                {inv.status === InvoiceStatus.PENDING_MANAGER ? 'AG. SUA APROVAÇÃO' :
-                                                inv.status === InvoiceStatus.PENDING_ADMIN ? 'ENVIADO P/ PAGTO' : 'PAGO'}
+                                                inv.status === InvoiceStatus.PENDING_ADMIN ? 'ENVIADO P/ PAGTO' : 
+                                                inv.status === InvoiceStatus.REJECTED ? 'RECUSADO' : 'PAGO'}
                                            </span>
                                        </td>
                                        <td className="px-6 py-4 text-right">
                                            {inv.status === InvoiceStatus.PENDING_MANAGER && (
-                                               <button 
-                                                   onClick={() => handleApproveInvoice(inv)}
-                                                   className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 ml-auto"
-                                               >
-                                                   <CheckCheck size={14}/> Atestar
-                                               </button>
+                                              <div className="flex items-center justify-end gap-2">
+                                                 <button 
+                                                    className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"
+                                                    title="Visualizar NFe"
+                                                    onClick={() => alert(`Visualização simulada do arquivo: ${inv.nfeFileUrl}`)}
+                                                 >
+                                                    <Eye size={14}/>
+                                                 </button>
+                                                 <button 
+                                                     onClick={() => handleRejectInvoice(inv)}
+                                                     className="bg-red-50 hover:bg-red-100 text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm"
+                                                     title="Recusar"
+                                                 >
+                                                     <XCircle size={14}/>
+                                                 </button>
+                                                 <button 
+                                                     onClick={() => handleApproveInvoice(inv)}
+                                                     className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm"
+                                                 >
+                                                     <CheckCheck size={14}/> Atestar
+                                                 </button>
+                                              </div>
+                                           )}
+                                           {inv.status !== InvoiceStatus.PENDING_MANAGER && (
+                                               <span className="text-xs text-slate-400 flex items-center justify-end gap-1"><Check size={12}/> Atestado</span>
                                            )}
                                        </td>
                                    </tr>
