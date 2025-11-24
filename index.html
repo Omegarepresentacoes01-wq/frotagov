@@ -5,35 +5,52 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FrotaGov Smart</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
       tailwind.config = {
         theme: {
           extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+            },
             colors: {
               primary: '#0f172a', // Slate 900
-              secondary: '#3b82f6', // Blue 500
+              secondary: '#2563eb', // Blue 600
               accent: '#10b981', // Emerald 500
-              danger: '#ef4444', // Red 500
+              surface: '#ffffff',
+              background: '#f8fafc',
+            },
+            boxShadow: {
+              'soft': '0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.02)',
+              'glow': '0 0 15px rgba(37, 99, 235, 0.15)',
             }
           }
         }
       }
     </script>
     <style>
+      body {
+        background-color: #f8fafc;
+      }
       /* Custom scrollbar for webkit */
       ::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
+        width: 8px;
+        height: 8px;
       }
       ::-webkit-scrollbar-track {
-        background: #f1f5f9;
+        background: transparent;
       }
       ::-webkit-scrollbar-thumb {
         background: #cbd5e1;
-        border-radius: 3px;
+        border-radius: 4px;
       }
       ::-webkit-scrollbar-thumb:hover {
         background: #94a3b8;
+      }
+      .glass {
+        background: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
       }
     </style>
   <script type="importmap">
@@ -50,7 +67,7 @@
 }
 </script>
 </head>
-  <body class="bg-gray-50 text-slate-800 font-sans antialiased selection:bg-blue-100">
+  <body class="bg-slate-50 text-slate-800 font-sans antialiased selection:bg-blue-100">
     <div id="root"></div>
   </body>
 </html>

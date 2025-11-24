@@ -7,7 +7,7 @@ import { FleetManagerDashboard } from './views/FleetManagerDashboard';
 import { FuelStationDashboard } from './views/FuelStationDashboard';
 import { Login } from './views/Login';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { LogOut, Fuel, Car, LayoutDashboard } from 'lucide-react';
+import { LogOut, Fuel, ChevronDown } from 'lucide-react';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
@@ -31,29 +31,34 @@ const App: React.FC = () => {
 
   return (
     <HashRouter>
-      <div className="min-h-screen bg-slate-50 flex flex-col">
+      <div className="min-h-screen flex flex-col bg-[#f8fafc]">
         {user && (
-          <header className="bg-primary text-white shadow-lg sticky top-0 z-50">
+          <header className="bg-white/80 backdrop-blur-md sticky top-0 z-50 border-b border-slate-200 shadow-sm">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="bg-secondary p-1.5 rounded-lg">
-                  <Fuel size={24} className="text-white" />
+              <div className="flex items-center gap-3">
+                <div className="bg-gradient-to-br from-blue-600 to-blue-700 p-2 rounded-xl shadow-lg shadow-blue-500/20 text-white">
+                  <Fuel size={20} strokeWidth={3} />
                 </div>
-                <span className="text-xl font-bold tracking-tight">FrotaGov<span className="text-secondary">SaaS</span></span>
+                <div>
+                  <h1 className="text-lg font-bold tracking-tight text-slate-800 leading-tight">FrotaGov</h1>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">SaaS</span>
+                </div>
               </div>
               
-              <div className="flex items-center space-x-4">
+              <div className="flex items-center gap-6">
                 <div className="hidden md:flex flex-col text-right">
-                  <span className="text-sm font-medium">{user.name}</span>
-                  <span className="text-xs text-slate-400">{user.role === UserRole.SUPER_ADMIN ? 'Super Admin' : user.role === UserRole.FLEET_MANAGER ? 'Gestor Público' : 'Gerente Posto'}</span>
+                  <span className="text-sm font-semibold text-slate-700">{user.name}</span>
+                  <span className="text-xs text-slate-500 font-medium bg-slate-100 px-2 py-0.5 rounded-full w-fit ml-auto">
+                    {user.role === UserRole.SUPER_ADMIN ? 'Super Admin' : user.role === UserRole.FLEET_MANAGER ? 'Gestor Público' : 'Posto Credenciado'}
+                  </span>
                 </div>
+                <div className="h-8 w-[1px] bg-slate-200 hidden md:block"></div>
                 <button 
                   onClick={handleLogout}
-                  className="p-2 hover:bg-slate-800 rounded-full transition-colors"
-                  aria-label="Sair"
-                  title="Sair do sistema"
+                  className="flex items-center gap-2 text-slate-500 hover:text-red-600 transition-colors text-sm font-medium group"
                 >
-                  <LogOut size={20} />
+                  <span className="hidden md:inline group-hover:underline decoration-red-200 underline-offset-4">Sair</span>
+                  <LogOut size={18} />
                 </button>
               </div>
             </div>
@@ -87,9 +92,10 @@ const App: React.FC = () => {
           </Routes>
         </main>
 
-        <footer className="bg-white border-t border-slate-200 py-6 mt-auto">
-           <div className="max-w-7xl mx-auto px-4 text-center text-sm text-slate-500">
-             © 2024 FrotaGov SaaS - Tecnologia para Gestão Pública Eficiente
+        <footer className="bg-white border-t border-slate-200 py-8 mt-auto">
+           <div className="max-w-7xl mx-auto px-4 text-center">
+             <p className="text-sm text-slate-500 font-medium">© 2025 FrotaGov SaaS</p>
+             <p className="text-xs text-slate-400 mt-1">Tecnologia para Gestão Pública Eficiente</p>
            </div>
         </footer>
       </div>
