@@ -28,7 +28,7 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
   const [invoiceForm, setInvoiceForm] = useState({ number: '', isAdvance: false });
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   
-  // Use a generic ref for safety, but we use the overlay method for inputs now
+  // No longer needed but kept for safety if we revert
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -454,7 +454,7 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
                                        <div className="text-right">
                                            <p className="font-bold text-slate-700">R$ {inv.netValue.toFixed(2)}</p>
                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                               inv.status === InvoiceStatus.PENDING_MANAGER ? 'bg-yellow-100 text-yellow-700' :
+                                               inv.status === InvoiceStatus.PENDING_MANAGER ? 'bg-amber-100 text-amber-700' :
                                                inv.status === InvoiceStatus.PENDING_ADMIN ? 'bg-blue-100 text-blue-700' :
                                                inv.status === InvoiceStatus.PAID ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
                                            }`}>
@@ -505,10 +505,10 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
                       
                       <div>
                           <label className="block text-sm font-medium text-slate-700 mb-1">Arquivo XML ou PDF</label>
-                          <div className="relative border-2 border-dashed border-slate-300 rounded-lg p-6 flex flex-col items-center justify-center hover:bg-slate-50 transition-colors">
+                          <label className="w-full border-2 border-dashed border-slate-300 rounded-lg p-6 flex flex-col items-center justify-center hover:bg-slate-50 transition-colors cursor-pointer bg-slate-50/50">
                               <input 
                                   type="file" 
-                                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" 
+                                  className="hidden" 
                                   onChange={handleFileChange} 
                                   accept=".pdf,.xml,.jpg,.png"
                               />
@@ -524,7 +524,7 @@ export const FuelStationDashboard: React.FC<Props> = ({ user }) => {
                                     <span className="text-xs text-slate-500">Clique para anexar arquivo da NFe</span>
                                   </>
                               )}
-                          </div>
+                          </label>
                       </div>
 
                       <button 

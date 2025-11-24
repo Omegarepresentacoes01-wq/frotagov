@@ -28,7 +28,7 @@ export const SuperAdminDashboard: React.FC = () => {
 
   useEffect(() => {
     refreshData();
-    const interval = setInterval(refreshData, 5000); 
+    const interval = setInterval(refreshData, 2000); // Poll faster to catch manager approvals
     return () => clearInterval(interval);
   }, []);
 

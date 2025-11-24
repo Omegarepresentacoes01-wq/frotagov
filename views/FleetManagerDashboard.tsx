@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { User, Vehicle, FuelStation, Transaction, TransactionStatus, FuelType, Invoice, InvoiceStatus } from '../types';
 import { storageService } from '../services/storageService';
 import { generateFleetInsights } from '../services/geminiService';
-import { Truck, BarChart3, Building2, PlusCircle, Trash2, Car, LayoutDashboard, Ticket, Check, FileText, CheckCheck, Eye, XCircle } from 'lucide-react';
+import { Truck, BarChart3, Building2, PlusCircle, Trash2, Car, LayoutDashboard, Ticket, Check, FileText, CheckCheck, Eye, XCircle, RefreshCw } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 
 interface Props {
@@ -37,7 +37,7 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
 
   useEffect(() => {
     refreshData();
-    const interval = setInterval(refreshData, 5000); // Auto-refresh to see new invoices
+    const interval = setInterval(refreshData, 3000); // Mais rápido para feedback instantâneo
     return () => clearInterval(interval);
   }, [user.orgId]);
 
@@ -57,28 +57,48 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
   };
 
   const handleApproveInvoice = (inv: Invoice) => {
-      // Direct confirm
-      if(!window.confirm(`Confirma o recebimento dos serviços e valida a NF #${inv.nfeNumber}? O admin será notificado para pagamento.`)) return;
+      // 1. Confirmação clara
+      const confirmAction = window.confirm(
+        `ATENÇÃO GESTOR:\n\n` +
+        `Você está prestes a ATESTAR a Nota Fiscal #${inv.nfeNumber}.\n` +
+        `Isso confirma que o serviço foi realizado e envia a cobrança para o ADMIN pagar.\n\n` +
+        `Deseja continuar?`
+      );
+      
+      if(!confirmAction) return;
 
       try {
+        // 2. Busca e Atualização Direta no Array Mestre
         const allInvoices = storageService.getInvoices();
-        const updatedInvs = allInvoices.map(i => {
-            if(i.id === inv.id) {
-              return { ...i, status: InvoiceStatus.PENDING_ADMIN };
-            }
-            return i;
-        });
-        storageService.updateInvoices(updatedInvs);
+        const invoiceIndex = allInvoices.findIndex(i => i.id === inv.id);
+
+        if (invoiceIndex === -1) {
+            alert("Erro crítico: Fatura não encontrada no banco de dados.");
+            return;
+        }
+
+        // 3. Modifica status
+        allInvoices[invoiceIndex].status = InvoiceStatus.PENDING_ADMIN; // Próximo passo: Admin Pagar
+        
+        // 4. Salva
+        storageService.updateInvoices(allInvoices);
+        
+        // 5. Feedback
         refreshData();
-        alert("Nota Fiscal atestada com sucesso! O status foi atualizado para PENDING_ADMIN.");
+        setTimeout(() => {
+            alert("✅ SUCESSO!\n\nA Nota Fiscal foi atestada e enviada para a fila de pagamento do Admin.");
+        }, 100);
+
       } catch (e) {
         console.error(e);
-        alert("Erro ao atualizar a fatura.");
+        alert("Erro técnico ao atualizar a fatura. Tente novamente.");
       }
   };
   
   const handleRejectInvoice = (inv: Invoice) => {
-    if(!window.confirm(`Deseja realmente recusar a NF #${inv.nfeNumber}? O posto será notificado.`)) return;
+    const reason = prompt(`Motivo da recusa da NF #${inv.nfeNumber}:`);
+    if(reason === null) return; // Cancelou
+
     try {
         const allInvoices = storageService.getInvoices();
         const updatedInvs = allInvoices.map(i => {
@@ -89,7 +109,7 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
         });
         storageService.updateInvoices(updatedInvs);
         refreshData();
-        alert("Nota Fiscal recusada.");
+        alert("Nota Fiscal recusada e devolvida ao posto.");
     } catch(e) {
         alert("Erro ao recusar.");
     }
@@ -202,7 +222,7 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
       {activeTab === 'DASHBOARD' && (
         <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Form & Prices (Same as before) */}
+            {/* Form & Prices */}
             <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                <div className="bg-blue-600 p-4 text-white flex items-center gap-2"><Ticket size={20} /> <span className="font-bold">Nova Requisição</span></div>
                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -285,17 +305,21 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
       {/* --- FINANCE TAB --- */}
       {activeTab === 'FINANCE' && (
           <div className="space-y-6">
-             <h2 className="text-xl font-bold text-slate-700 flex items-center gap-2"><FileText /> Notas Fiscais Recebidas</h2>
+             <div className="flex justify-between items-center">
+                <h2 className="text-xl font-bold text-slate-700 flex items-center gap-2"><FileText /> Notas Fiscais Recebidas</h2>
+                <button onClick={refreshData} className="text-slate-400 hover:text-blue-600 p-2"><RefreshCw size={18}/></button>
+             </div>
+             
              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
                  <table className="w-full text-left text-sm text-slate-600">
                      <thead className="bg-slate-50 font-bold uppercase text-xs">
                          <tr>
                              <th className="px-6 py-4">Posto</th>
-                             <th className="px-6 py-4">NFe</th>
+                             <th className="px-6 py-4">NFe / Arquivo</th>
                              <th className="px-6 py-4">Emissão</th>
                              <th className="px-6 py-4">Valor Total</th>
-                             <th className="px-6 py-4">Status</th>
-                             <th className="px-6 py-4 text-right">Ação</th>
+                             <th className="px-6 py-4">Status Atual</th>
+                             <th className="px-6 py-4 text-right">Ação do Gestor</th>
                          </tr>
                      </thead>
                      <tbody className="divide-y divide-slate-100">
@@ -303,59 +327,51 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
                            invoices.map(inv => {
                                const stationName = stations.find(s => s.id === inv.stationId)?.name;
                                return (
-                                   <tr key={inv.id} className="hover:bg-slate-50">
+                                   <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
                                        <td className="px-6 py-4 font-bold text-slate-800">{stationName}</td>
                                        <td className="px-6 py-4">
-                                            <div className="flex items-center gap-2">
-                                                <span className="font-mono bg-slate-100 px-1 rounded">{inv.nfeNumber}</span>
+                                            <div className="flex flex-col gap-1">
+                                                <span className="font-mono font-bold text-slate-700">{inv.nfeNumber}</span>
                                                 {inv.nfeFileUrl && (
-                                                    <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full flex items-center gap-1 border border-blue-100">
+                                                    <a href="#" onClick={(e) => { e.preventDefault(); alert(`Simulando download do arquivo: ${inv.nfeFileUrl}`); }} className="text-[11px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full flex items-center gap-1 w-fit border border-blue-100 hover:bg-blue-100">
                                                         <FileText size={10}/> {inv.nfeFileUrl}
-                                                    </span>
+                                                    </a>
                                                 )}
                                             </div>
                                        </td>
                                        <td className="px-6 py-4">{new Date(inv.issueDate).toLocaleDateString()}</td>
-                                       <td className="px-6 py-4 font-bold">R$ {inv.totalValue.toFixed(2)}</td>
+                                       <td className="px-6 py-4 font-bold text-slate-800">R$ {inv.totalValue.toFixed(2)}</td>
                                        <td className="px-6 py-4">
-                                           <span className={`text-[10px] font-bold px-2 py-1 rounded-full ${
-                                               inv.status === InvoiceStatus.PENDING_MANAGER ? 'bg-yellow-100 text-yellow-700' :
-                                               inv.status === InvoiceStatus.PENDING_ADMIN ? 'bg-blue-100 text-blue-700' :
-                                               inv.status === InvoiceStatus.REJECTED ? 'bg-red-100 text-red-700' :
-                                               'bg-emerald-100 text-emerald-700'
+                                           <span className={`text-[10px] font-bold px-2 py-1 rounded-full border ${
+                                               inv.status === InvoiceStatus.PENDING_MANAGER ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                               inv.status === InvoiceStatus.PENDING_ADMIN ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                                               inv.status === InvoiceStatus.REJECTED ? 'bg-red-50 text-red-700 border-red-200' :
+                                               'bg-emerald-50 text-emerald-700 border-emerald-200'
                                            }`}>
-                                               {inv.status === InvoiceStatus.PENDING_MANAGER ? 'AG. SUA APROVAÇÃO' :
-                                                inv.status === InvoiceStatus.PENDING_ADMIN ? 'ENVIADO P/ PAGTO' : 
+                                               {inv.status === InvoiceStatus.PENDING_MANAGER ? 'AGUARDANDO SEU ATESTE' :
+                                                inv.status === InvoiceStatus.PENDING_ADMIN ? 'ENVIADO P/ ADMIN (PAGTO)' : 
                                                 inv.status === InvoiceStatus.REJECTED ? 'RECUSADO' : 'PAGO'}
                                            </span>
                                        </td>
                                        <td className="px-6 py-4 text-right">
-                                           {inv.status === InvoiceStatus.PENDING_MANAGER && (
-                                              <div className="flex items-center justify-end gap-2">
-                                                 <button 
-                                                    className="bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1"
-                                                    title="Visualizar NFe"
-                                                    onClick={() => alert(`Visualização simulada do arquivo: ${inv.nfeFileUrl}`)}
-                                                 >
-                                                    <Eye size={14}/>
-                                                 </button>
+                                           {inv.status === InvoiceStatus.PENDING_MANAGER ? (
+                                              <div className="flex items-center justify-end gap-2 animate-in fade-in">
                                                  <button 
                                                      onClick={() => handleRejectInvoice(inv)}
-                                                     className="bg-red-50 hover:bg-red-100 text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm"
-                                                     title="Recusar"
+                                                     className="bg-white border border-slate-200 hover:bg-red-50 hover:border-red-200 text-slate-500 hover:text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition-all"
+                                                     title="Recusar NFe"
                                                  >
-                                                     <XCircle size={14}/>
+                                                     <XCircle size={14}/> Recusar
                                                  </button>
                                                  <button 
                                                      onClick={() => handleApproveInvoice(inv)}
-                                                     className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm"
+                                                     className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 shadow-md shadow-emerald-200 hover:shadow-lg transition-all transform active:scale-95"
                                                  >
-                                                     <CheckCheck size={14}/> Atestar
+                                                     <CheckCheck size={14}/> Atestar Recebimento
                                                  </button>
                                               </div>
-                                           )}
-                                           {inv.status !== InvoiceStatus.PENDING_MANAGER && (
-                                               <span className="text-xs text-slate-400 flex items-center justify-end gap-1"><Check size={12}/> Atestado</span>
+                                           ) : (
+                                               <span className="text-xs text-slate-400 flex items-center justify-end gap-1 font-medium"><Check size={14} className="text-emerald-500"/> Processo Concluído</span>
                                            )}
                                        </td>
                                    </tr>
@@ -371,7 +387,7 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
       {/* ... Modals (Voucher/Add Vehicle) ... */}
       {createdVoucher && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
-           <div className="bg-white rounded-3xl p-8 max-w-sm w-full text-center">
+           <div className="bg-white rounded-3xl p-8 max-w-sm w-full text-center animate-in zoom-in duration-300">
                <div className="bg-emerald-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"><Check className="text-emerald-600" size={32}/></div>
                <h3 className="text-2xl font-bold mb-2">Autorizado!</h3>
                <p className="text-slate-500 mb-4">Entregue este código ao frentista:</p>
@@ -383,7 +399,7 @@ export const FleetManagerDashboard: React.FC<Props> = ({ user }) => {
       
       {showAddVehicle && (
           <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-2xl p-6 w-full max-w-md">
+              <div className="bg-white rounded-2xl p-6 w-full max-w-md animate-in slide-in-from-bottom-10">
                   <h3 className="font-bold mb-4 text-lg">Novo Veículo</h3>
                   <div className="space-y-4">
                       <input placeholder="Placa" className="w-full border p-2 rounded" value={newVehicle.plate} onChange={e => setNewVehicle({...newVehicle, plate: e.target.value})} />
